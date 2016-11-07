@@ -23,20 +23,37 @@ save=train
 train=save
 head(train$loss)
 
+train_B=train[cat57==2,]
+plot(train_B)
+slm=lm(log(loss+100)~.-id,data=train_B)
+par(mfrow=c(2,2))
+y=knn.reg
+plot(slm)
+
+
+lmTune <- train(loss~.-id,data=train_B,
+                 method = "lm",
+                 trControl = trainControl(method = "cv",n=4))
+
+lmTune
+knnTune <- train(loss~.-id,data=train_B,
+                 method = "knn",
+                 tuneGrid = data.frame(.k = 1:2),
+                 trControl = trainControl(method = "cv",n=4))
+
+
+knnTune
+plot(sqrt(train_B$loss))
 #create sparse matrix
 #train_matrix=sparse.model.matrix(loss~.-1,data = train)
 
 train=train[,c("cont12"):=NULL]
-indx=grep("cont",names(train))
-for(j in indx)
-  set(train,j=j,value=log1p(train[[j]]*10^6))
-
 
 #simple log
 train=save
-train$loss=log(200+train$loss)
+train$loss=log(train$loss)
 names(train)
-
+train=train_B
 #create xgb model
 dtrain <- xgb.DMatrix(data = as.matrix(train[,-c(grep("id",names(train)),
                                                 grep("loss",names(train))),
@@ -55,8 +72,8 @@ logregobj <- function(preds, dtrain){
 }
 
 param=list(objective = logregobj,
-           eta=.005, 
-           max_depth= 12,
+           eta=.01, 
+           max_depth= 10,
            subsample=.8,
            colsample_bytree=.5,
            min_child_weight=1,
@@ -94,9 +111,6 @@ test=data.frame(lapply(test,as.numeric))
 test=data.table(test)
 
 test=test[,c("cont12"):=NULL]
-indx=grep("cont",names(test))
-for(j in indx)
-  set(test,j=j,value=log1p(test[[j]]*10^6))
 
 #create  matrix
 dtest <- xgb.DMatrix(data = as.matrix(test[,-1,with=F])) 
