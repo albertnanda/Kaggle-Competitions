@@ -13,54 +13,65 @@ library(earth)
 
 #read the data set and convert the factors to numbers
 setwd("d:/Kaggle Competition/")
-train=fread("train.csv",stringsAsFactors = T)
-train=data.frame(lapply(train,as.numeric))
-train=data.table(train)
+train=fread("train.csv")
+test=fread("test.csv")
+# save id & loss
+final=data.table(id=test$id)
+train_Y=train$loss
 
-#save the original variable
-save_loss=train$loss
-save=train
-train=save
-head(train$loss)
+#remove id and loss
+train[,c("id","loss"):=NULL]
+test[,c("id"):=NULL]
 
-train_B=train[cat57==2,]
-plot(train_B)
-slm=lm(log(loss+100)~.-id,data=train_B)
-par(mfrow=c(2,2))
-y=knn.reg
-plot(slm)
+cat_vindx=c("cat101","cat105","cat109","cat110","cat111","cat113","cat114","cat116")
 
 
-lmTune <- train(loss~.-id,data=train_B,
-                 method = "lm",
-                 trControl = trainControl(method = "cv",n=4))
-
-lmTune
-knnTune <- train(loss~.-id,data=train_B,
-                 method = "knn",
-                 tuneGrid = data.frame(.k = 1:2),
-                 trControl = trainControl(method = "cv",n=4))
+data_comb=rbind(train,test)
 
 
-knnTune
-plot(sqrt(train_B$loss))
-#create sparse matrix
-#train_matrix=sparse.model.matrix(loss~.-1,data = train)
+vec=c(26,1)
+convert2code=function(x)
+{
+  temp=utf8ToInt(x)-64
+  if(length(temp)==1) {
+    length(temp)=2 
+    temp=rev(temp)
+    }
+  return(sum(temp*vec,na.rm = T))
+}
 
-train=train[,c("cont12"):=NULL]
+for(i in cat_vindx)
+{
+  data_comb[[i]]=sapply(data_comb[[i]],convert2code)
+  data_comb[[i]]=log(200+data_comb[[i]])
+}
+  
+
+
+indx=names(data_comb)
+indx=setdiff(indx,cat_vindx)
+for(i in indx)
+{
+  if(length(grep("cat",i))>0)
+  {
+    data_comb[[i]]=as.integer(as.factor(data_comb[[i]]))
+    data_comb[[i]]=log(200+data_comb[[i]])
+  } else
+  {
+    data_comb[[i]]=log(10^3*data_comb[[i]]+200)
+  }
+}
 
 #simple log
-train=save
-train$loss=log(train$loss)
-names(train)
-train=train_B
-#create xgb model
-dtrain <- xgb.DMatrix(data = as.matrix(train[,-c(grep("id",names(train)),
-                                                grep("loss",names(train))),
-                                                with=F]), 
-                                                label = train$loss)
+train_Y=log(200+train_Y)
 
-set.seed(0)
+#create xgb model
+dtrain <- xgb.DMatrix(data = as.matrix(data_comb[1:length(train_Y),]),label = train_Y)
+
+dtest <- xgb.DMatrix(data = as.matrix(data_comb[(length(train_Y)+1):nrow(data_comb),]))
+  
+watchlist=list(train=dtrain)
+
 
 logregobj <- function(preds, dtrain){
   labels = getinfo(dtrain, "label")
@@ -72,8 +83,8 @@ logregobj <- function(preds, dtrain){
 }
 
 param=list(objective = logregobj,
-           eta=.01, 
-           max_depth= 10,
+           eta=.005, 
+           max_depth= 12,
            subsample=.8,
            colsample_bytree=.5,
            min_child_weight=1,
@@ -90,37 +101,27 @@ xg_eval_mae <- function (yhat, dtrain) {
 
 
 xgb= xgb.cv(params=param,
-             dtrain,
-             nrounds=2000,
-             nfold=5,
-             early_stopping_rounds=15,
-             print_every_n = 10,
-             verbose= 1,
-             feval=xg_eval_mae,
-             maximize=FALSE
-            )
+            dtrain,
+            nrounds=2000,
+            nfold=5,
+            early_stopping_rounds=15,
+            print_every_n = 10,
+            verbose= 1,
+            feval=xg_eval_mae,
+            #watchlist=watchlist,
+            maximize=FALSE
+)
+
+set.seed(0)
+xgb_final=xgb.train(params = param,data = dtrain,watchlist=watchlist,
+                    feval=xg_eval_mae,nrounds = 5000)
 
 
-xgb_final=xgb.train(params = param,data = dtrain,nrounds = 5000)
-
-
-
-#read the test data set
-test=fread("test.csv",stringsAsFactors = T)
-test=data.frame(lapply(test,as.numeric))
-test=data.table(test)
-
-test=test[,c("cont12"):=NULL]
-
-#create  matrix
-dtest <- xgb.DMatrix(data = as.matrix(test[,-1,with=F])) 
-                      
 
 #predict
 xgb_pred=predict(xgb_final,dtest)
 #rescale the variable and anti-log
-xgb_pred=exp(xgb_pred)
-xgb_pred=xgb_pred-200
+xgb_pred=exp(xgb_pred)-200
 head(xgb_pred)
 max(xgb_pred)
 min(xgb_pred)
@@ -128,15 +129,10 @@ mean(xgb_pred)
 sd(xgb_pred)
 
 
-test$loss=xgb_pred
-
-ggplot(test,aes(loss))+geom_histogram(binwidth = 0.5)
-
+final$loss=xgb_pred
+head(final)
 
 #write file to disk
-test=test[,c(1,ncol(test)),with=F]
-test$id=as.integer(test$id)
-head(test)
-write.csv(test,"new3.csv",row.names = F)
-max(test$loss)
-sum(test$loss)
+write.csv(final,"14.csv",row.names = F)
+
+
