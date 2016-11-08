@@ -8,8 +8,6 @@ require(Matrix)
 require(xgboost)
 require(data.table)
 require(Metrics)
-require(Cubist)
-library(earth)
 
 #read the data set and convert the factors to numbers
 setwd("d:/Kaggle Competition/")
@@ -19,43 +17,19 @@ test=fread("test.csv")
 final=data.table(id=test$id)
 train_Y=train$loss
 
-#remove id and loss
-train[,c("id","loss"):=NULL]
-test[,c("id"):=NULL]
-
-cat_vindx=c("cat101","cat105","cat109","cat110","cat111","cat113","cat114","cat116")
-
+#remove id and loss & cont12
+train[,c("id","loss","cont12"):=NULL]
+test[,c("id","cont12"):=NULL]
 
 data_comb=rbind(train,test)
 
 
-vec=c(26,1)
-convert2code=function(x)
-{
-  temp=utf8ToInt(x)-64
-  if(length(temp)==1) {
-    length(temp)=2 
-    temp=rev(temp)
-    }
-  return(sum(temp*vec,na.rm = T))
-}
-
-for(i in cat_vindx)
-{
-  data_comb[[i]]=sapply(data_comb[[i]],convert2code)
-  data_comb[[i]]=log(200+data_comb[[i]])
-}
-  
-
-
 indx=names(data_comb)
-indx=setdiff(indx,cat_vindx)
 for(i in indx)
 {
   if(length(grep("cat",i))>0)
   {
     data_comb[[i]]=as.integer(as.factor(data_comb[[i]]))
-    data_comb[[i]]=log(200+data_comb[[i]])
   } else
   {
     data_comb[[i]]=log(10^3*data_comb[[i]]+200)
@@ -122,17 +96,11 @@ xgb_final=xgb.train(params = param,data = dtrain,watchlist=watchlist,
 xgb_pred=predict(xgb_final,dtest)
 #rescale the variable and anti-log
 xgb_pred=exp(xgb_pred)-200
-head(xgb_pred)
-max(xgb_pred)
-min(xgb_pred)
-mean(xgb_pred)
-sd(xgb_pred)
-
+summary(xgb_pred)
 
 final$loss=xgb_pred
-head(final)
 
 #write file to disk
-write.csv(final,"14.csv",row.names = F)
+write.csv(final,"15.csv",row.names = F)
 
 
