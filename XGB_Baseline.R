@@ -8,6 +8,7 @@ require(Matrix)
 require(xgboost)
 require(data.table)
 require(Metrics)
+require(scales)
 
 #read the data set and convert the factors to numbers
 setwd("d:/Kaggle Competition/")
@@ -18,25 +19,31 @@ final=data.table(id=test$id)
 train_Y=train$loss
 
 #remove id and loss & cont12
-train[,c("id","loss","cont12"):=NULL]
-test[,c("id","cont12"):=NULL]
+train[,c("id","loss"):=NULL]
+test[,c("id"):=NULL]
 
 data_comb=rbind(train,test)
 
 
-indx=names(data_comb)
+
+indx=grep("cat",names(data_comb),value = T)
+
 for(i in indx)
 {
-  if(length(grep("cat",i))>0)
-  {
     data_comb[[i]]=as.integer(as.factor(data_comb[[i]]))
-  } else
-  {
-    data_comb[[i]]=log(10^3*data_comb[[i]]+200)
-  }
+    data_comb[[i]]=rescale(data_comb[[i]])
 }
+#remove high correlation variables
+corr_mat=cor(data_comb)
+(high_corr=findCorrelation(corr_mat,.90,names = T))
+
+data_comb=data_comb[,c(high_corr):=NULL]
+
+
+
 
 #simple log
+
 train_Y=log(200+train_Y)
 
 #create xgb model
@@ -58,7 +65,7 @@ logregobj <- function(preds, dtrain){
 
 param=list(objective = logregobj,
            eta=.005, 
-           max_depth= 12,
+           max_depth= 10,
            subsample=.8,
            colsample_bytree=.5,
            min_child_weight=1,
@@ -88,7 +95,7 @@ xgb= xgb.cv(params=param,
 
 set.seed(0)
 xgb_final=xgb.train(params = param,data = dtrain,watchlist=watchlist,
-                    feval=xg_eval_mae,nrounds = 5000)
+                    print_every_n = 100,feval=xg_eval_mae,nrounds = 5000)
 
 
 
@@ -101,6 +108,6 @@ summary(xgb_pred)
 final$loss=xgb_pred
 
 #write file to disk
-write.csv(final,"15.csv",row.names = F)
+write.csv(final,"18.csv",row.names = F)
 
 
